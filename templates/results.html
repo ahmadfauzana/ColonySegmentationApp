@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+    <title>Image Processing Results</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            background-color: #ffffff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            width: 90%;
+            max-width: 1200px;
+            margin-top: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .results {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-around;
+        }
+        .result-item {
+            flex: 0 0 30%;
+            box-sizing: border-box;
+            margin: 10px;
+        }
+        .result-item img {
+            width: 100%;
+            height: auto;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .verification-code {
+            margin-top: 20px;
+            font-size: 18px;
+            color: #333;
+        }
+        .back-button {
+            margin-top: 20px;
+        }
+        .back-button button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        .back-button button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Processing Results</h1>
+        
+        <div class="results">
+            <div class="result-item">
+                <h2>Original Image</h2>
+                <img src="{{ original_url }}" alt="Original Image">
+            </div>
+            
+            <div class="result-item">
+                <h2>Segmented Image</h2>
+                <img src="{{ segmented_url }}" alt="Segmented Image">
+            </div>
+            
+            <div class="result-item">
+                <h2>Combined Image</h2>
+                <img src="{{ combined_url }}" alt="Combined Image">
+            </div>
+        </div>
+        
+        <div class="verification-code">
+            <h2>Verification Code</h2>
+            <p>{{ verification_code }}</p>
+        </div>
+        
+        <div class="back-button">
+            <a href="{{ url_for('index') }}"><button>Back to Home</button></a>
+        </div>
+    </div>
+</body>
+</html>
