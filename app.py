@@ -4,8 +4,7 @@ import cv2
 import random
 import string
 import numpy as np
-from scipy import ndimage
-from sklearn.cluster import KMeans
+import time
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'
@@ -17,50 +16,42 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(PROCESSED_FOLDER, exist_ok=True)
 os.makedirs(CODE_FOLDER, exist_ok=True)
 
-def segment_colonies(image_path):
-    # Load the image
-    image = cv2.imread(image_path)
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+def process_image(image_path):
+    # Load the original image
+    original = cv2.imread(image_path)
     
-    # Apply Gaussian Blur to reduce noise
+    # Step 1: Convert to grayscale
+    gray = cv2.cvtColor(original, cv2.COLOR_BGR2GRAY)
+    
+    # Step 2: Apply Gaussian Blurring to reduce noise
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     
-    # Adaptive thresholding to create a binary image
-    _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    # Step 3: Enhance contrast with CLAHE (Contrast Limited Adaptive Histogram Equalization)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    contrast_enhanced = clahe.apply(blurred)
     
-    # Morphological opening to remove small noise
+    # Step 4: Use adaptive thresholding to segment the image
+    segmented = cv2.adaptiveThreshold(
+        contrast_enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+    )
+    
+    # Step 5: Morphological operations to refine segmentation
     kernel = np.ones((3, 3), np.uint8)
-    opened = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=2)
+    # Remove small noise and close small holes in segmented regions
+    segmented_refined = cv2.morphologyEx(segmented, cv2.MORPH_CLOSE, kernel)
     
-    # Distance transform to identify colony centers
-    dist_transform = cv2.distanceTransform(opened, cv2.DIST_L2, 5)
-    dist_transform = cv2.normalize(dist_transform, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    # Step 6: Edge detection using Canny for clear boundaries
+    edges = cv2.Canny(contrast_enhanced, 50, 150)
     
-    # Threshold for markers for Watershed
-    _, markers = cv2.threshold(dist_transform, 0.7 * dist_transform.max(), 255, 0)
-    markers = ndimage.label(markers)[0]
+    # Step 7: Convert segmented and edge images to BGR for color overlay
+    segmented_bgr = cv2.cvtColor(segmented_refined, cv2.COLOR_GRAY2BGR)
+    edges_bgr = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
     
-    # Apply the Watershed algorithm
-    markers = cv2.watershed(image, markers)
-    image[markers == -1] = [255, 0, 0]  # Boundary in red
-    
-    # Color quantization using KMeans for a colorful, scattered effect
-    pixel_values = image.reshape((-1, 3))
-    pixel_values = np.float32(pixel_values)
-    kmeans = KMeans(n_clusters=5, random_state=0).fit(pixel_values)
-    centers = np.uint8(kmeans.cluster_centers_)
-    segmented_image = centers[kmeans.labels_]
-    segmented_image = segmented_image.reshape(image.shape)
-    
-    # Mask areas outside the segmented colonies
-    segmented_mask = np.zeros_like(segmented_image)
-    segmented_mask[markers > 1] = segmented_image[markers > 1]
-    
-    # Combine original image with segmented output for an overlay effect
-    combined = cv2.addWeighted(image, 0.5, segmented_mask, 0.5, 0)
-    
-    # Return images
-    return image, segmented_mask, combined
+    # Step 8: Combine the original image with segmented and edge-detected layers
+    combined = cv2.addWeighted(original, 0.6, segmented_bgr, 0.3, 0)
+    combined = cv2.addWeighted(combined, 0.9, edges_bgr, 0.3, 0)
+
+    return original, segmented_bgr, combined
 
 def generate_captcha_code(length=6):
     # Generate a random alphanumeric string for the CAPTCHA
@@ -90,7 +81,7 @@ def index():
             upload_path = os.path.join(UPLOAD_FOLDER, filename)
             file.save(upload_path)
 
-            original, segmented, combined = segment_colonies(upload_path)
+            original, segmented, combined = process_image(upload_path)
             new_verification_code = generate_captcha_code()
 
             saved_code = read_verification_code(filename)
