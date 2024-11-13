@@ -17,41 +17,62 @@ os.makedirs(PROCESSED_FOLDER, exist_ok=True)
 os.makedirs(CODE_FOLDER, exist_ok=True)
 
 def process_image(image_path):
-    # Load the original image
-    original = cv2.imread(image_path)
+    # Load the original grayscale image
+    gray = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     
-    # Step 1: Convert to grayscale
-    gray = cv2.cvtColor(original, cv2.COLOR_BGR2GRAY)
+    # Step 1: Enhance contrast with CLAHE (Contrast Limited Adaptive Histogram Equalization)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    contrast_enhanced = clahe.apply(gray)
     
-    # Step 2: Apply Gaussian Blurring to reduce noise
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    # Step 2: Apply a color map to the contrast-enhanced grayscale image for pseudo-coloring
+    pseudo_color = cv2.applyColorMap(contrast_enhanced, cv2.COLORMAP_JET)
     
-    # Step 3: Enhance contrast with CLAHE (Contrast Limited Adaptive Histogram Equalization)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    contrast_enhanced = clahe.apply(blurred)
+    # Step 3: Adaptive thresholding to isolate colony clusters
+    _, thresholded = cv2.threshold(contrast_enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     
-    # Step 4: Use adaptive thresholding to segment the image
-    segmented = cv2.adaptiveThreshold(
-        contrast_enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
-    )
-    
-    # Step 5: Morphological operations to refine segmentation
+    # Step 4: Morphological operations to clean up small noise and close gaps
     kernel = np.ones((3, 3), np.uint8)
-    # Remove small noise and close small holes in segmented regions
-    segmented_refined = cv2.morphologyEx(segmented, cv2.MORPH_CLOSE, kernel)
+    morph = cv2.morphologyEx(thresholded, cv2.MORPH_CLOSE, kernel, iterations=2)
     
-    # Step 6: Edge detection using Canny for clear boundaries
-    edges = cv2.Canny(contrast_enhanced, 50, 150)
+    # Step 5: Find contours to isolate clusters and improve boundary details
+    contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    # Step 7: Convert segmented and edge images to BGR for color overlay
-    segmented_bgr = cv2.cvtColor(segmented_refined, cv2.COLOR_GRAY2BGR)
-    edges_bgr = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    # Step 6: Detect circles using HoughCircles
+    circles = cv2.HoughCircles(contrast_enhanced, cv2.HOUGH_GRADIENT, dp=1.2, minDist=50, param1=100, param2=30, minRadius=10, maxRadius=100)
     
-    # Step 8: Combine the original image with segmented and edge-detected layers
-    combined = cv2.addWeighted(original, 0.6, segmented_bgr, 0.3, 0)
-    combined = cv2.addWeighted(combined, 0.9, edges_bgr, 0.3, 0)
+    # If some circles are detected, proceed with clustering
+    if circles is not None:
+        circles = np.round(circles[0, :]).astype("int")
+        
+        # Step 7: Create an image to hold the colored colonies within the detected circles
+        colony_colored_image = pseudo_color.copy()
+        
+        for i, (x, y, r) in enumerate(circles):
+            # Create a mask for the current circle
+            mask = np.zeros_like(gray)
+            cv2.circle(mask, (x, y), r, 255, thickness=cv2.FILLED)
+            
+            # Apply the mask to isolate colonies inside the circle
+            isolated_colony = cv2.bitwise_and(morph, morph, mask=mask)
+            
+            # Find contours inside the circle to identify individual colonies
+            colony_contours, _ = cv2.findContours(isolated_colony, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Generate random colors for each colony (in BGR format)
+            colony_color = np.random.randint(0, 255, size=(1, 3), dtype=np.uint8).tolist()[0]
+            
+            # Draw the contours of the colonies inside the circle with unique colors
+            for contour in colony_contours:
+                cv2.drawContours(colony_colored_image, [contour], -1, colony_color, 2)
+        
+        # Step 8: Final combined image - blend pseudo-color and highlighted colonies with darkened background
+        final_combined = cv2.addWeighted(colony_colored_image, 0.8, pseudo_color, 0.2, 0)
+        
+    else:
+        # If no circles are detected, use the original pseudo-colored image
+        final_combined = pseudo_color
 
-    return original, segmented_bgr, combined
+    return pseudo_color, colony_colored_image, final_combined
 
 def generate_captcha_code(length=6):
     # Generate a random alphanumeric string for the CAPTCHA
